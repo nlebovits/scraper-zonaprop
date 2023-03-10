@@ -1,0 +1,13 @@
+.idea
+analysis
+data
+geo_data
+to_export
+v1.5_geolocation
+*.pyc
+*.csv
+*.xls
+*.ipynb
+*.html
+.vscode/settings.json
+data_preprocessing.py
