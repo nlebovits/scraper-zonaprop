@@ -1,6 +1,9 @@
-# zona-prop-scraping
+# scraper-zonaprop
 
-Scraper de Zonaprop.
+Fork de Scraper de Zonaprop de Sotrosca para recuperar datos como geolocalización, inmobiliaria, entre otros. Se modificó scraper.py y con ello utils.py. De conjunto el código quedó mucho más simple pero recomiendo ver el repositorio de Sotrosca dado que es un gran ejemplo de buenas practicas y fuente de inspiración.
+En un futuro agregaré data_preprocessing.py que normaliza la información volcada en el .csv y utiliza la funcion geo_data() para enriquecer el dataset con la API del Servicio de Normalización de Datos Geográficos de Argentina.
+
+A continuación adjunto el README.md original.
 
 ## Modo de uso:
 
