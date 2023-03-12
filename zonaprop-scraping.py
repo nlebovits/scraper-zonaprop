@@ -1,4 +1,5 @@
 import time
+import sys
 
 import pandas as pd
 
@@ -30,5 +31,5 @@ def main(url):
     utils.monitoring(df, start_time)
 
 if __name__ == '__main__':
-    url = 'https://www.zonaprop.com.ar/inmuebles-alquiler-capital-federal.html'
+    url = 'https://www.zonaprop.com.ar/departamentos-alquiler-mas-de-3-habitaciones-4-ambientes-publicado-hace-menos-de-1-semana.html'
     main(url)

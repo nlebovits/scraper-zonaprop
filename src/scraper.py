@@ -1,5 +1,7 @@
 import time
 import json
+import re
+import time
 
 from bs4 import BeautifulSoup
 
@@ -27,11 +29,11 @@ class Scraper:
         json_str = json_str.replace("window.__PRELOADED_STATE__ = ", "")
         json_str = json_str.split(";\n\t\t\twindow.__SITE_DATA__")[0]
 
-        data = []
         data = json.loads(json_str)
         data = data["listStore"]["listPostings"]
 
         return data
+
 
     def scrap_website(self):
         page_number = 1
@@ -52,7 +54,6 @@ class Scraper:
         page_url = f'{self.base_url}{HTML_EXTENSION}'
         page = self.browser.get_text(page_url)
         soup = BeautifulSoup(page, 'lxml')
-
         text = soup.find_all('h1')[0].text
         words = text.split(" ")
         for word in words:
@@ -67,7 +68,3 @@ class Scraper:
 
         estates_quantity = int(estates_quantity)
         return estates_quantity
-
-    def parse_estate(self, estate_post):
-        estate = None
-        return estate

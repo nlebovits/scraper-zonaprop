@@ -88,3 +88,4 @@ def monitoring(df, start_time):
 
     logging.info(f'Se procesaron {num_rows} establecimientos en {elapsed_time_formatted}.'
                  f'A razón de 100 establecimientos cada {row_rate_formatted}')
+
