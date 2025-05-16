@@ -9,5 +9,5 @@ class TestScraper():
         scraper = Scraper(browser, 'fake_url.com')
         scraper.get_estates_quantity = mocker.MagicMock(return_value=20)
         browser.get_text = mocker.MagicMock(return_value=html_page)
-        estates = scraper.scrap_website()
+        estates = scraper.scrape_website()
         assert len(estates) == 20

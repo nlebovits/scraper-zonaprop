@@ -1,6 +1,7 @@
 import time
 
 import pandas as pd
+from bs4 import BeautifulSoup
 
 from src import utils
 from src.browser import Browser
@@ -28,26 +29,36 @@ def main(url: str) -> None:
     browser = Browser()
     scraper = Scraper(browser, base_url)
     
-    # Get total number of estates before starting
-    total_estates = scraper.get_estates_quantity()
+    # Get first page to determine total estates and estates per page
+    first_page_data = scraper.scrape_page(1)
+    first_page_estates = len(first_page_data)
+    
+    # Get total count from the first page
+    page = browser.get_text(f'{base_url}.html')
+    soup = BeautifulSoup(page, 'lxml')
+    text = soup.find_all('h1')[0].text
+    words = text.split(" ")
+    for word in words:
+        try:
+            float(word)
+            total_estates = int(word.replace('.', ''))
+            break
+        except ValueError:
+            pass
+    else:
+        total_estates = first_page_estates  # Fallback to first page count if we can't find total
+    
+    total_pages = (total_estates + first_page_estates - 1) // first_page_estates
+    
     logging.info(f'Found {total_estates:,} total estates to scrape')
     
-    # Get number of estates on first page to calculate total pages
-    first_page_estates = len(scraper.scrap_page(1))
-    total_pages = (
-        (total_estates + first_page_estates - 1) // first_page_estates
-    )
-    logging.info(
-        f'Will scrape {total_pages:,} pages '
-        f'({first_page_estates} estates per page)'
-    )
-    
-    estates = scraper.scrap_website()
+    estates = scraper.scrape_website(first_page_data=first_page_data, total_estates=total_estates)
     
     logging.info('Scraping finished. Processing data...')
-    df = pd.DataFrame(estates)
-    df = df.apply(lambda x: utils.flatten_json(x.to_dict()), axis=1)
-    df = pd.DataFrame(df.tolist())
+    
+    # Process all estates at once instead of row by row
+    flattened_estates = [utils.flatten_json(estate) for estate in estates]
+    df = pd.DataFrame(flattened_estates)
 
     logging.info('Saving data to CSV files')
     utils.save_df_to_csv(df, base_url)
@@ -56,5 +67,9 @@ def main(url: str) -> None:
 
 
 if __name__ == '__main__':
-    url = 'https://www.zonaprop.com.ar/departamentos-alquiler.html'
+    url = 'https://www.zonaprop.com.ar/terrenos-venta-capital-federal-gba-norte-gba-sur-gba-oeste.html'
     main(url)
+
+
+# https://www.zonaprop.com.ar/terrenos-venta-capital-federal-gba-norte-gba-sur-gba-oeste.html
+# https://www.zonaprop.com.ar/departamentos-alquiler.html

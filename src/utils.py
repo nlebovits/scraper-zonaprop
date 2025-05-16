@@ -58,24 +58,44 @@ def create_root_directory(filename):
 
 
 def flatten_json(data, prefix=''):
+    """
+    Flatten a nested JSON structure into a single level dictionary.
+    Optimized for the specific structure of ZonaProp data.
+    """
     result = {}
-
+    
+    # Handle the most common cases first for better performance
+    if not isinstance(data, dict):
+        return {prefix[:-1]: data} if prefix else {prefix: data}
+    
     for key, value in data.items():
-        new_key = prefix + key
-
+        new_key = f"{prefix}{key}"
+        
         if isinstance(value, dict):
-            nested = flatten_json(value, new_key + '.')
-            result.update(nested)
+            # Handle nested dictionaries
+            if key in ['priceOperationTypes', 'mainFeatures', 'postingLocation']:
+                # Special handling for known nested structures
+                for subkey, subvalue in value.items():
+                    if isinstance(subvalue, dict):
+                        for k, v in subvalue.items():
+                            result[f"{new_key}.{subkey}.{k}"] = v
+                    else:
+                        result[f"{new_key}.{subkey}"] = subvalue
+            else:
+                # Generic nested dictionary handling
+                nested = flatten_json(value, f"{new_key}.")
+                result.update(nested)
         elif isinstance(value, list):
+            # Handle lists (typically only one level deep in our data)
             for i, item in enumerate(value):
                 if isinstance(item, dict):
-                    nested = flatten_json(item, new_key + f'[{i}].')
-                    result.update(nested)
+                    for k, v in item.items():
+                        result[f"{new_key}[{i}].{k}"] = v
                 else:
-                    result[new_key + f'[{i}]'] = item
+                    result[f"{new_key}[{i}]"] = item
         else:
             result[new_key] = value
-
+    
     return result
 
 def monitoring(df, start_time):
