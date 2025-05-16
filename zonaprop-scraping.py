@@ -1,6 +1,6 @@
 import time
 import argparse
-from typing import List, Literal
+from typing import List
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -21,19 +21,22 @@ logging.basicConfig(
 PROPERTY_TYPES = ["departamentos", "casas", "terrenos", "locales-comerciales", "ph"]
 TRANSACTION_TYPES = ["venta", "alquiler"]
 
+
 def build_url(property_types: List[str], transaction_type: str) -> str:
     """
     Build the ZonaProp URL based on property types and transaction type.
-    
+
     Args:
         property_types: List of property types to scrape
         transaction_type: Type of transaction (venta or alquiler)
-    
+
     Returns:
         str: Complete ZonaProp URL
     """
     if len(property_types) == 1:
-        return f"https://www.zonaprop.com.ar/{property_types[0]}-{transaction_type}.html"
+        return (
+            f"https://www.zonaprop.com.ar/{property_types[0]}-{transaction_type}.html"
+        )
     else:
         # For multiple property types, we need to use the search URL format
         # Example: https://www.zonaprop.com.ar/terrenos-venta-capital-federal-gba-norte-gba-sur-gba-oeste.html
@@ -48,12 +51,18 @@ def build_url(property_types: List[str], transaction_type: str) -> str:
                 additional_types.append("locales")
             else:
                 additional_types.append(prop_type)
-        
+
         # Join with hyphens and add to the base URL
         additional_str = "-".join(additional_types)
         return f"https://www.zonaprop.com.ar/{base_type}-{transaction_type}-{additional_str}.html"
 
-def main(url: str = None, property_types: List[str] = None, transaction_type: str = "venta", limit: int = None) -> None:
+
+def main(
+    url: str = None,
+    property_types: List[str] = None,
+    transaction_type: str = "venta",
+    limit: int = None,
+) -> None:
     """
     Main function to scrape real estate data from ZonaProp.
 
@@ -65,18 +74,18 @@ def main(url: str = None, property_types: List[str] = None, transaction_type: st
     """
     start_time = time.time()
     all_estates = []
-    
+
     # If URL is provided, just scrape that URL
     if url is not None:
         base_url = utils.parse_zonaprop_url(url)
         logging.info(f"Starting scraper for {base_url}")
         browser = Browser()
         scraper = Scraper(browser, base_url)
-        
+
         # Get first page to determine total estates and estates per page
         first_page_data = scraper.scrape_page(1)
         first_page_estates = len(first_page_data)
-        
+
         # Get total count from the first page
         page = browser.get_text(f"{base_url}.html")
         soup = BeautifulSoup(page, "lxml")
@@ -91,40 +100,44 @@ def main(url: str = None, property_types: List[str] = None, transaction_type: st
                 pass
         else:
             total_estates = first_page_estates  # Fallback to first page count if we can't find total
-            
+
         # Apply limit if specified
         if limit is not None:
             total_estates = min(total_estates, limit)
             logging.info(f"Limited to {total_estates:,} estates")
-            
+
         logging.info(f"Found {total_estates:,} total estates to scrape")
-        
+
         estates = scraper.scrape_website(
             first_page_data=first_page_data, total_estates=total_estates
         )
         all_estates.extend(estates)
         base_url_for_save = base_url
-    
+
     # If property types are provided, scrape each one
     elif property_types is not None:
         browser = Browser()
         # Calculate limit per property type
         limit_per_type = limit // len(property_types) if limit is not None else None
         if limit is not None:
-            logging.info(f"Limit of {limit:,} will be split into {limit_per_type:,} per property type")
-        
+            logging.info(
+                f"Limit of {limit:,} will be split into {limit_per_type:,} per property type"
+            )
+
         # Create a combined base URL for saving
-        base_url_for_save = f"https://www.zonaprop.com.ar/{'-'.join(property_types)}-{transaction_type}"
-        
+        base_url_for_save = (
+            f"https://www.zonaprop.com.ar/{'-'.join(property_types)}-{transaction_type}"
+        )
+
         for prop_type in property_types:
             base_url = f"https://www.zonaprop.com.ar/{prop_type}-{transaction_type}"
             logging.info(f"Starting scraper for {base_url}")
             scraper = Scraper(browser, base_url)
-            
+
             # Get first page to determine total estates and estates per page
             first_page_data = scraper.scrape_page(1)
             first_page_estates = len(first_page_data)
-            
+
             # Get total count from the first page
             page = browser.get_text(f"{base_url}.html")
             soup = BeautifulSoup(page, "lxml")
@@ -139,22 +152,24 @@ def main(url: str = None, property_types: List[str] = None, transaction_type: st
                     pass
             else:
                 total_estates = first_page_estates  # Fallback to first page count if we can't find total
-                
+
             # Apply limit per type if specified
             if limit_per_type is not None:
                 total_estates = min(total_estates, limit_per_type)
                 logging.info(f"Limited to {total_estates:,} estates for {prop_type}")
-                
-            logging.info(f"Found {total_estates:,} total estates to scrape for {prop_type}")
-            
+
+            logging.info(
+                f"Found {total_estates:,} total estates to scrape for {prop_type}"
+            )
+
             estates = scraper.scrape_website(
                 first_page_data=first_page_data, total_estates=total_estates
             )
             all_estates.extend(estates)
-            
+
             # Add a small delay between different property types
             time.sleep(2)
-    
+
     else:
         raise ValueError("Either url or property_types must be provided")
 
@@ -193,22 +208,20 @@ if __name__ == "__main__":
         help="Type of transaction (venta or alquiler)",
     )
     parser.add_argument(
-        "--limit", "-l",
-        type=int,
-        help="Limit the number of results to scrape"
+        "--limit", "-l", type=int, help="Limit the number of results to scrape"
     )
 
     args = parser.parse_args()
-    
+
     # Validate that either URL or property types are provided
     if not args.url and not args.property_types:
         parser.error("Either --url or --property-types must be provided")
-    
+
     main(
         url=args.url,
         property_types=args.property_types,
         transaction_type=args.transaction_type,
-        limit=args.limit
+        limit=args.limit,
     )
 
 
