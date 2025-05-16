@@ -7,6 +7,6 @@ def browser():
     return Browser()
 
 
-class TestBrowser():
+class TestBrowser:
     def test_browser(self, browser):
-        assert browser.get_text('https://www.google.com') is not None
+        assert browser.get_text("https://www.google.com") is not None

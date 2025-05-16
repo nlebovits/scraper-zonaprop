@@ -3,32 +3,38 @@ import os
 import re
 import time
 import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 columns = {
-    'postingId': 'posting_id',
-    'priceOperationTypes[0].operationType.name': 'status',
-    'priceOperationTypes[0].prices[0].formattedAmount': 'price',
-    'priceOperationTypes[0].prices[0].currency': 'currency_price',
-    'expenses.formattedAmount': 'expenses',
-    'expenses.currency': 'currency_expenses',
-    'mainFeatures.CFT100.value': 'm2_total',
-    'mainFeatures.CFT101.value': 'm2_covered',
-    'mainFeatures.CFT1.value': 'room',
-    'mainFeatures.CFT2.value': 'bedroom',
-    'mainFeatures.CFT3.value': 'bathroom',
-    'mainFeatures.CFT5.value': 'antiquity',
-    'mainFeatures.CFT7.value': 'garage',
-    'publisher.publisherId': 'publisher_id',
-    'publisher.name': 'publisher_name',
-    'realEstateType.name': 'type',
-    'postingLocation.postingGeolocation.geolocation.latitude': 'geo_latitude',
-    'postingLocation.postingGeolocation.geolocation.longitude': 'geo_longitude',
+    "postingId": "posting_id",
+    "priceOperationTypes[0].operationType.name": "status",
+    "priceOperationTypes[0].prices[0].formattedAmount": "price",
+    "priceOperationTypes[0].prices[0].currency": "currency_price",
+    "expenses.formattedAmount": "expenses",
+    "expenses.currency": "currency_expenses",
+    "mainFeatures.CFT100.value": "m2_total",
+    "mainFeatures.CFT101.value": "m2_covered",
+    "mainFeatures.CFT1.value": "room",
+    "mainFeatures.CFT2.value": "bedroom",
+    "mainFeatures.CFT3.value": "bathroom",
+    "mainFeatures.CFT5.value": "antiquity",
+    "mainFeatures.CFT7.value": "garage",
+    "publisher.publisherId": "publisher_id",
+    "publisher.name": "publisher_name",
+    "realEstateType.name": "type",
+    "postingLocation.postingGeolocation.geolocation.latitude": "geo_latitude",
+    "postingLocation.postingGeolocation.geolocation.longitude": "geo_longitude",
 }
 
+
 def remove_host_from_url(url):
-    host_regex = r'(^https?://)(.*/)'
-    return re.sub(host_regex, '', url)
+    host_regex = r"(^https?://)(.*/)"
+    return re.sub(host_regex, "", url)
+
 
 def get_filename_from_datetime(base_url, extension):
     base_url_without_host = remove_host_from_url(base_url)
@@ -37,43 +43,50 @@ def get_filename_from_datetime(base_url, extension):
 
 def save_df_to_csv(df, base_url):
     def save_file(suffix, selected_columns, rename_columns):
-        filename = get_filename_from_datetime(base_url + suffix, 'csv')
+        filename = get_filename_from_datetime(base_url + suffix, "csv")
         create_root_directory(filename)
         if selected_columns:
-            df_selected = df.loc[:, selected_columns].rename(columns=rename_columns)
+            # Filter out columns that don't exist in the DataFrame
+            existing_columns = [col for col in selected_columns if col in df.columns]
+            if existing_columns:
+                df_selected = df.loc[:, existing_columns].rename(columns=rename_columns)
+            else:
+                logging.warning(f"No matching columns found for {suffix} file")
+                return
         else:
             df_selected = df.copy()
         df_selected.to_csv(filename, index=False)
-        logging.info(f'Data saved to {filename}')
+        logging.info(f"Data saved to {filename}")
 
     save_file("_COMPLETE", None, None)
     save_file("_PARTIAL", list(columns.keys()), columns)
 
 
 def parse_zonaprop_url(url):
-    return url.replace('.html', '')
+    return url.replace(".html", "")
+
 
 def create_root_directory(filename):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
 
 
-def flatten_json(data, prefix=''):
+def flatten_json(data, prefix=""):
     """
     Flatten a nested JSON structure into a single level dictionary.
     Optimized for the specific structure of ZonaProp data.
     """
     result = {}
-    
+
     # Handle the most common cases first for better performance
     if not isinstance(data, dict):
         return {prefix[:-1]: data} if prefix else {prefix: data}
-    
+
     for key, value in data.items():
         new_key = f"{prefix}{key}"
-        
+
         if isinstance(value, dict):
             # Handle nested dictionaries
-            if key in ['priceOperationTypes', 'mainFeatures', 'postingLocation']:
+            if key in ["priceOperationTypes", "mainFeatures", "postingLocation"]:
                 # Special handling for known nested structures
                 for subkey, subvalue in value.items():
                     if isinstance(subvalue, dict):
@@ -95,8 +108,9 @@ def flatten_json(data, prefix=''):
                     result[f"{new_key}[{i}]"] = item
         else:
             result[new_key] = value
-    
+
     return result
+
 
 def monitoring(df, start_time):
     num_rows = df.shape[0]
@@ -106,6 +120,7 @@ def monitoring(df, start_time):
     row_rate = elapsed_time / num_rows * 100
     row_rate_formatted = time.strftime("%H:%M:%S", time.gmtime(row_rate))
 
-    logging.info(f'Se procesaron {num_rows} establecimientos en {elapsed_time_formatted}.'
-                 f'A razón de 100 establecimientos cada {row_rate_formatted}')
-
+    logging.info(
+        f"Se procesaron {num_rows} establecimientos en {elapsed_time_formatted}."
+        f"A razón de 100 establecimientos cada {row_rate_formatted}"
+    )

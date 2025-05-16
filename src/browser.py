@@ -1,7 +1,7 @@
 import cloudscraper
 
 
-class Browser():
+class Browser:
     def __init__(self):
         self.scraper = cloudscraper.create_scraper()
 
@@ -13,4 +13,3 @@ class Browser():
 
     def get_text(self, url):
         return self.scraper.get(url).text
-
