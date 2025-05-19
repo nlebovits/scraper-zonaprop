@@ -1,36 +1,53 @@
 # scraper-zonaprop
 
-Fork de Scraper de Zonaprop de Sotrosca para recuperar datos como geolocalización, inmobiliaria, entre otros. Se modificó scraper.py y con ello utils.py. De conjunto el código quedó mucho más simple pero recomiendo ver el repositorio de Sotrosca dado que es un gran ejemplo de buenas practicas y fuente de inspiración.
-En un futuro agregaré data_preprocessing.py que normaliza la información volcada en el .csv y utiliza la funcion geo_data() para enriquecer el dataset con la API del Servicio de Normalización de Datos Geográficos de Argentina.
-
-A continuación adjunto el README.md original.
+Fork del repositorio original de Sotrosca. Este scraper recupera datos de propiedades de ZonaProp, incluyendo información detallada como ubicación, características, precios, y datos de la inmobiliaria.
 
 ## Modo de uso:
 
-1- Instalar las dependencias declaradas en el archivo `requirements.txt`:
-
-Con pip:
+1- Clonar el repositorio:
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/yourusername/scraper-zonaprop.git
+cd scraper-zonaprop
 ```
 
-Con conda:
+2- Instalar las dependencias usando `uv`:
 
 ```bash
-conda install --file requirements.txt
+uv sync
 ```
 
-2- Ejecutar el script `zonaprop-scraping.py` pasando como argumento la url de la página de Zonaprop que se desea scrapear (por default se utilizará la url: https://www.zonaprop.com.ar/departamentos-alquiler.html):
+Esto creará un entorno virtual e instalará todas las dependencias necesarias.
+
+3- Ejecutar el script principal:
 
 ```bash
-python zonaprop-scraping.py <url>
+uv run zonaprop-scraping.py
 ```
 
-Por ejemplo:
+Por defecto, el script utilizará la URL: https://www.zonaprop.com.ar/departamentos-alquiler.html. Para cambiar la URL, edita el archivo `zonaprop-scraping.py` directamente.
+
+### Flags disponibles:
+
+El script acepta los siguientes flags:
+
+- `--url`: URL directa de ZonaProp a scrapear
+- `--property-types` o `-p`: Tipos de propiedades a scrapear (pueden especificarse múltiples)
+  - Opciones válidas: departamentos, casas, terrenos, locales-comerciales, ph
+- `--transaction-type` o `-t`: Tipo de transacción (venta o alquiler)
+- `--limit` o `-l`: Límite en el número de resultados a scrapear
+
+Ejemplos de uso:
 
 ```bash
-python zonaprop-scraping.py https://www.zonaprop.com.ar/departamentos-alquiler.html
+# Scrapear una URL específica
+uv run zonaprop-scraping.py --url https://www.zonaprop.com.ar/departamentos-venta.html
+
+# Scrapear múltiples tipos de propiedades
+uv run zonaprop-scraping.py -p departamentos casas -t venta
+
+# Limitar el número de resultados
+uv run zonaprop-scraping.py -p departamentos -l 100
 ```
 
 3- El script generará un archivo `.csv` en el directorio `data` con los datos de los inmuebles obtenidos.
@@ -40,3 +57,10 @@ python zonaprop-scraping.py https://www.zonaprop.com.ar/departamentos-alquiler.h
 Se puede ver un análisis de los datos obtenidos por el scraper en el archivo `/analysis/exploratory-analysis.ipynb`.
 
 Tomar este análisis como un ejemplo de cómo se puede utilizar el scraper para obtener datos y analizarlos.
+
+## Mejoras futuras
+
+- Implementar `data_preprocessing.py` para normalizar la información y enriquecer el dataset con la API del Servicio de Normalización de Datos Geográficos de Argentina
+- Optimizar las requests para mejorar la velocidad de scraping
+- Implementar caché de datos en formato Parquet para consultas más rápidas
+- Agregar limpieza general de datos y validación de campos
