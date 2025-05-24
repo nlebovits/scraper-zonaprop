@@ -64,6 +64,7 @@ def main(
     property_types: List[str] = None,
     transaction_type: str = "venta",
     limit: int = None,
+    num_batches: int = 1,
 ) -> None:
     """
     Main function to scrape real estate data from ZonaProp.
@@ -73,10 +74,10 @@ def main(
         property_types: List of property types to scrape (departamentos, casas, terrenos, etc.)
         transaction_type: Type of transaction (venta or alquiler)
         limit: Optional limit on the number of results to scrape (will be split evenly across property types)
+        num_batches: Number of batches to split the data into (default: 1, meaning all data in memory)
     """
     start_time = time.time()
     all_estates = []
-    BATCH_SIZE = 2500  # Number of properties to process before saving
 
     # If URL is provided, just scrape that URL
     if url is not None:
@@ -112,72 +113,48 @@ def main(
 
             print(f"Found {total_estates:,} properties to scrape")
 
-            # Calculate total pages and batches
+            # Calculate total pages
             total_pages = (total_estates + first_page_estates - 1) // first_page_estates
-            total_batches = (total_estates + BATCH_SIZE - 1) // BATCH_SIZE
-            print(f"Will process {total_pages} pages in {total_batches} batches of {BATCH_SIZE} properties each")
-            
-            # Process in batches
-            current_batch = []
-            batch_number = 0
-            
-            # Add first page data to current batch
-            current_batch.extend(first_page_data)
+            print(f"Will process {total_pages} pages")
             
             # Create progress bar for total pages
             pbar = tqdm(total=total_pages, desc="Scraping pages")
             
-            # Save first batch to create the initial file
-            if current_batch:
-                flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                df = pd.DataFrame(flattened_estates)
-                utils.save_df_to_parquet(df, base_url, None, pbar)
-                all_estates.extend(current_batch)
-                current_batch = []
-                batch_number += 1
+            # Add first page data
+            all_estates.extend(first_page_data)
             
-            # Process remaining pages in batches
+            # Process remaining pages
             for page_num in range(2, total_pages + 1):
                 try:
                     page_data = scraper.scrape_page(page_num)
-                    current_batch.extend(page_data)
-                    
-                    # If we've reached batch size or this is the last page, save the batch
-                    if len(current_batch) >= BATCH_SIZE or page_num == total_pages:
-                        # Convert batch to DataFrame and save
-                        flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                        df = pd.DataFrame(flattened_estates)
-                        utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                        
-                        # Update progress
-                        all_estates.extend(current_batch)
-                        
-                        # Reset for next batch
-                        current_batch = []
-                        batch_number += 1
-                    
+                    all_estates.extend(page_data)
                     time.sleep(scraper._get_sleep_time())
                     pbar.update(1)
                     
                 except BlockedError as e:
-                    # Save current batch before exiting
-                    if current_batch:
-                        flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                        df = pd.DataFrame(flattened_estates)
-                        utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                        all_estates.extend(current_batch)
                     raise
                 except Exception as e:
                     logging.error(f"Error scraping page {page_num}: {str(e)}")
-                    # Save current batch before potentially exiting
-                    if current_batch:
-                        flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                        df = pd.DataFrame(flattened_estates)
-                        utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                        all_estates.extend(current_batch)
                     raise
 
             pbar.close()
+
+            # Save all data
+            if num_batches == 1:
+                # Single batch - save all data at once
+                flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
+                df = pd.DataFrame(flattened_estates)
+                utils.save_df_to_parquet(df, base_url, pbar)
+            else:
+                # Multiple batches
+                batch_size = len(all_estates) // num_batches
+                for i in range(num_batches):
+                    start_idx = i * batch_size
+                    end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
+                    batch_estates = all_estates[start_idx:end_idx]
+                    flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
+                    df = pd.DataFrame(flattened_estates)
+                    utils.save_df_to_parquet(df, base_url, pbar)
 
         except BlockedError as e:
             print("Scraping was blocked. Please follow the suggestions above and try again.")
@@ -235,72 +212,48 @@ def main(
 
                 print(f"Found {total_estates:,} {prop_type} properties to scrape")
 
-                # Calculate total pages and batches
+                # Calculate total pages
                 total_pages = (total_estates + first_page_estates - 1) // first_page_estates
-                total_batches = (total_estates + BATCH_SIZE - 1) // BATCH_SIZE
-                print(f"Will process {total_pages} pages in {total_batches} batches of {BATCH_SIZE} properties each")
-                
-                # Process in batches
-                current_batch = []
-                batch_number = 0
-                
-                # Add first page data to current batch
-                current_batch.extend(first_page_data)
+                print(f"Will process {total_pages} pages")
                 
                 # Create progress bar for total pages
                 pbar = tqdm(total=total_pages, desc=f"Scraping {prop_type} pages")
                 
-                # Save first batch to create the initial file
-                if current_batch:
-                    flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                    df = pd.DataFrame(flattened_estates)
-                    utils.save_df_to_parquet(df, base_url, None, pbar)
-                    all_estates.extend(current_batch)
-                    current_batch = []
-                    batch_number += 1
+                # Add first page data
+                all_estates.extend(first_page_data)
                 
-                # Process remaining pages in batches
+                # Process remaining pages
                 for page_num in range(2, total_pages + 1):
                     try:
                         page_data = scraper.scrape_page(page_num)
-                        current_batch.extend(page_data)
-                        
-                        # If we've reached batch size or this is the last page, save the batch
-                        if len(current_batch) >= BATCH_SIZE or page_num == total_pages:
-                            # Convert batch to DataFrame and save
-                            flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                            df = pd.DataFrame(flattened_estates)
-                            utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                            
-                            # Update progress
-                            all_estates.extend(current_batch)
-                            
-                            # Reset for next batch
-                            current_batch = []
-                            batch_number += 1
-                        
+                        all_estates.extend(page_data)
                         time.sleep(scraper._get_sleep_time())
                         pbar.update(1)
                         
                     except BlockedError as e:
-                        # Save current batch before exiting
-                        if current_batch:
-                            flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                            df = pd.DataFrame(flattened_estates)
-                            utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                            all_estates.extend(current_batch)
                         raise
                     except Exception as e:
                         logging.error(f"Error scraping page {page_num}: {str(e)}")
-                        # Save current batch before potentially exiting
-                        if current_batch:
-                            flattened_estates = [utils.flatten_json(estate) for estate in current_batch]
-                            df = pd.DataFrame(flattened_estates)
-                            utils.save_df_to_parquet(df, base_url, batch_number, pbar)
-                            all_estates.extend(current_batch)
                         raise
 
                 pbar.close()
+
+                # Save all data
+                if num_batches == 1:
+                    # Single batch - save all data at once
+                    flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
+                    df = pd.DataFrame(flattened_estates)
+                    utils.save_df_to_parquet(df, base_url, pbar)
+                else:
+                    # Multiple batches
+                    batch_size = len(all_estates) // num_batches
+                    for i in range(num_batches):
+                        start_idx = i * batch_size
+                        end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
+                        batch_estates = all_estates[start_idx:end_idx]
+                        flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
+                        df = pd.DataFrame(flattened_estates)
+                        utils.save_df_to_parquet(df, base_url, pbar)
 
                 # Add a small delay between different property types
                 time.sleep(2)
@@ -346,6 +299,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--limit", "-l", type=int, help="Limit the number of results to scrape"
     )
+    parser.add_argument(
+        "--num-batches", "-b", type=int, default=1,
+        help="Number of batches to split the data into (default: 1, meaning all data in memory)"
+    )
 
     args = parser.parse_args()
 
@@ -358,6 +315,7 @@ if __name__ == "__main__":
         property_types=args.property_types,
         transaction_type=args.transaction_type,
         limit=args.limit,
+        num_batches=args.num_batches,
     )
 
 

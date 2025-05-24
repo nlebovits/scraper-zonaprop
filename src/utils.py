@@ -127,17 +127,14 @@ def get_run_directory(base_url):
     return run_dir
 
 
-def save_df_to_parquet(df, base_url, batch_number=None, pbar=None):
+def save_df_to_parquet(df, base_url, pbar=None):
     """
-    Save DataFrame to a Parquet file with timestamp and support batch appending.
-    Each script run creates a new directory with timestamp, containing the main file and any recovery files.
-    Uses pyarrow for efficient dataset writing and appending.
+    Save DataFrame to a Parquet file with timestamp.
+    Each script run creates a new directory with timestamp.
     
     Args:
         df: DataFrame to save
         base_url: Base URL for the scrape
-        batch_number: Optional batch number for this save. If None, creates a new file.
-                     If provided, appends to the file created in this run.
         pbar: Optional tqdm progress bar to update
     """
     base_url_without_host = remove_host_from_url(base_url)
@@ -145,41 +142,26 @@ def save_df_to_parquet(df, base_url, batch_number=None, pbar=None):
     # Add timestamp to the data
     df['scraped_at'] = pd.Timestamp.now()
     
-    if batch_number is None:
-        # First batch of a new run - create new directory and file
-        run_dir = get_run_directory(base_url)
-        filename = f'{run_dir}/data.parquet'
+    # Create new directory and file
+    run_dir = get_run_directory(base_url)
+    filename = f'{run_dir}/data.parquet'
+    
+    try:
         table = pa.Table.from_pandas(df)
         pq.write_table(table, filename)
-        # Store the directory for this run's batches
-        save_df_to_parquet.current_run_dir = run_dir
         if pbar:
-            pbar.set_description(f"Created new run directory: {run_dir}")
-    else:
-        # Append to the file created in this run
-        if not hasattr(save_df_to_parquet, 'current_run_dir'):
-            raise RuntimeError("No current run directory exists for batch appending")
-            
-        filename = f'{save_df_to_parquet.current_run_dir}/data.parquet'
-        try:
-            # Read existing data
-            existing_data = pq.read_table(filename)
-            
-            # Convert new data to table
-            new_table = pa.Table.from_pandas(df)
-            
-            # Combine tables - pyarrow will handle schema evolution
-            combined_table = pa.concat_tables([existing_data, new_table])
-            pq.write_table(combined_table, filename)
-        except Exception as e:
-            # Create a recovery file in the same directory
-            recovery_filename = f'{save_df_to_parquet.current_run_dir}/recovery-{batch_number}.parquet'
-            table = pa.Table.from_pandas(df)
-            pq.write_table(table, recovery_filename)
-            if pbar:
-                pbar.set_description(f"Created recovery file for batch {batch_number}")
-            # Log error without schema details
-            logging.error(f"Error appending to {filename}: Failed to append batch {batch_number}")
+            pbar.set_description(f"Saved {len(df):,} properties to {run_dir}")
+    except Exception as e:
+        # Log detailed error information
+        logging.error(f"Error saving to {filename}:")
+        logging.error(f"  Error type: {type(e).__name__}")
+        logging.error(f"  Error message: {str(e)}")
+        logging.error(f"  Data shape: {df.shape}")
+        logging.error(f"  Data columns: {df.columns.tolist()}")
+        if hasattr(e, '__traceback__'):
+            import traceback
+            logging.error(f"  Traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
+        raise
 
 
 def monitoring(df, start_time):
