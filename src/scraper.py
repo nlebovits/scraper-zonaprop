@@ -3,6 +3,8 @@ import json
 import random
 from statistics import mean
 from tqdm import tqdm
+import logging
+from typing import List, Dict
 
 from bs4 import BeautifulSoup
 
@@ -128,3 +130,12 @@ class Scraper:
                         pbar.update(remaining)
 
         return estates
+
+
+class BlockedError(Exception):
+    """Raised when the scraper is blocked by the website."""
+    pass
+
+class ScrapingError(Exception):
+    """Raised when there's an error during scraping."""
+    pass

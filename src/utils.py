@@ -3,12 +3,18 @@ import os
 import re
 import time
 import logging
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+from tqdm import tqdm
 
+# Set up logging to only show warnings and errors
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
 columns = {
     "postingId": "posting_id",
     "priceOperationTypes[0].operationType.name": "status",
@@ -112,7 +118,72 @@ def flatten_json(data, prefix=""):
     return result
 
 
+def get_run_directory(base_url):
+    """Get the directory for this run's files."""
+    base_url_without_host = remove_host_from_url(base_url)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    run_dir = f'data/{base_url_without_host}-{timestamp}'
+    os.makedirs(run_dir, exist_ok=True)
+    return run_dir
+
+
+def save_df_to_parquet(df, base_url, batch_number=None, pbar=None):
+    """
+    Save DataFrame to a Parquet file with timestamp and support batch appending.
+    Each script run creates a new directory with timestamp, containing the main file and any recovery files.
+    Uses pyarrow for efficient dataset writing and appending.
+    
+    Args:
+        df: DataFrame to save
+        base_url: Base URL for the scrape
+        batch_number: Optional batch number for this save. If None, creates a new file.
+                     If provided, appends to the file created in this run.
+        pbar: Optional tqdm progress bar to update
+    """
+    base_url_without_host = remove_host_from_url(base_url)
+    
+    # Add timestamp to the data
+    df['scraped_at'] = pd.Timestamp.now()
+    
+    if batch_number is None:
+        # First batch of a new run - create new directory and file
+        run_dir = get_run_directory(base_url)
+        filename = f'{run_dir}/data.parquet'
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, filename)
+        # Store the directory for this run's batches
+        save_df_to_parquet.current_run_dir = run_dir
+        if pbar:
+            pbar.set_description(f"Created new run directory: {run_dir}")
+    else:
+        # Append to the file created in this run
+        if not hasattr(save_df_to_parquet, 'current_run_dir'):
+            raise RuntimeError("No current run directory exists for batch appending")
+            
+        filename = f'{save_df_to_parquet.current_run_dir}/data.parquet'
+        try:
+            # Read existing data
+            existing_data = pq.read_table(filename)
+            
+            # Convert new data to table
+            new_table = pa.Table.from_pandas(df)
+            
+            # Combine tables - pyarrow will handle schema evolution
+            combined_table = pa.concat_tables([existing_data, new_table])
+            pq.write_table(combined_table, filename)
+        except Exception as e:
+            # Create a recovery file in the same directory
+            recovery_filename = f'{save_df_to_parquet.current_run_dir}/recovery-{batch_number}.parquet'
+            table = pa.Table.from_pandas(df)
+            pq.write_table(table, recovery_filename)
+            if pbar:
+                pbar.set_description(f"Created recovery file for batch {batch_number}")
+            # Log error without schema details
+            logging.error(f"Error appending to {filename}: Failed to append batch {batch_number}")
+
+
 def monitoring(df, start_time):
+    """Print final statistics about the scraping run."""
     num_rows = df.shape[0]
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -120,7 +191,26 @@ def monitoring(df, start_time):
     row_rate = elapsed_time / num_rows * 100
     row_rate_formatted = time.strftime("%H:%M:%S", time.gmtime(row_rate))
 
-    logging.info(
-        f"Se procesaron {num_rows} establecimientos en {elapsed_time_formatted}."
-        f"A razón de 100 establecimientos cada {row_rate_formatted}"
-    )
+    print(f"\nScraping completed:")
+    print(f"Total properties: {num_rows:,}")
+    print(f"Total time: {elapsed_time_formatted}")
+    print(f"Rate: 100 properties every {row_rate_formatted}")
+
+
+def get_latest_parquet_file(base_url):
+    """Get the most recent parquet file for a given base URL."""
+    base_url_without_host = remove_host_from_url(base_url)
+    data_dir = 'data'
+    if not os.path.exists(data_dir):
+        return None
+    
+    # Find all matching parquet files
+    pattern = f"{base_url_without_host}-*.parquet"
+    matching_files = [f for f in os.listdir(data_dir) if f.startswith(base_url_without_host) and f.endswith('.parquet')]
+    
+    if not matching_files:
+        return None
+    
+    # Sort by timestamp in filename and get the most recent
+    latest_file = sorted(matching_files)[-1]
+    return os.path.join(data_dir, latest_file)
