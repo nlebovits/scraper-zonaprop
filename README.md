@@ -2,6 +2,15 @@
 
 Fork del repositorio original de Sotrosca. Este scraper recupera datos de propiedades de ZonaProp, incluyendo información detallada como ubicación, características, precios, y datos de la inmobiliaria.
 
+## Requisitos importantes
+
+⚠️ **IMPORTANTE**: Este scraper requiere una dirección IP de Argentina para funcionar correctamente. ZonaProp bloquea el acceso desde IPs de otros países.
+
+Si estás fuera de Argentina, necesitarás usar una VPN configurada con una ubicación en Argentina. Algunas recomendaciones:
+- Asegúrate de que tu VPN esté correctamente configurada y conectada antes de ejecutar el scraper
+- Si el scraper falla con un error de "NoneType", verifica que tu VPN esté funcionando correctamente
+- Algunas VPNs pueden no funcionar correctamente con ZonaProp; si tienes problemas, prueba con un proveedor de VPN diferente
+
 ## Modo de uso:
 
 1- Clonar el repositorio:
