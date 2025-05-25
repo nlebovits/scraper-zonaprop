@@ -6,7 +6,6 @@ import logging
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from tqdm import tqdm
 
 # Set up logging to only show warnings and errors
 logging.basicConfig(
@@ -122,7 +121,7 @@ def get_run_directory(base_url):
     """Get the directory for this run's files."""
     base_url_without_host = remove_host_from_url(base_url)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    run_dir = f'data/{base_url_without_host}-{timestamp}'
+    run_dir = f"data/{base_url_without_host}-{timestamp}"
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
 
@@ -131,21 +130,21 @@ def save_df_to_parquet(df, base_url, pbar=None):
     """
     Save DataFrame to a Parquet file with timestamp.
     Each script run creates a new directory with timestamp.
-    
+
     Args:
         df: DataFrame to save
         base_url: Base URL for the scrape
         pbar: Optional tqdm progress bar to update
     """
     base_url_without_host = remove_host_from_url(base_url)
-    
+
     # Add timestamp to the data
-    df['scraped_at'] = pd.Timestamp.now()
-    
+    df["scraped_at"] = pd.Timestamp.now()
+
     # Create new directory and file
     run_dir = get_run_directory(base_url)
-    filename = f'{run_dir}/data.parquet'
-    
+    filename = f"{run_dir}/data.parquet"
+
     try:
         table = pa.Table.from_pandas(df)
         pq.write_table(table, filename)
@@ -158,9 +157,12 @@ def save_df_to_parquet(df, base_url, pbar=None):
         logging.error(f"  Error message: {str(e)}")
         logging.error(f"  Data shape: {df.shape}")
         logging.error(f"  Data columns: {df.columns.tolist()}")
-        if hasattr(e, '__traceback__'):
+        if hasattr(e, "__traceback__"):
             import traceback
-            logging.error(f"  Traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
+
+            logging.error(
+                f"  Traceback:\n{''.join(traceback.format_tb(e.__traceback__))}"
+            )
         raise
 
 
@@ -173,7 +175,7 @@ def monitoring(df, start_time):
     row_rate = elapsed_time / num_rows * 100
     row_rate_formatted = time.strftime("%H:%M:%S", time.gmtime(row_rate))
 
-    print(f"\nScraping completed:")
+    print("\nScraping completed:")
     print(f"Total properties: {num_rows:,}")
     print(f"Total time: {elapsed_time_formatted}")
     print(f"Rate: 100 properties every {row_rate_formatted}")
@@ -182,17 +184,21 @@ def monitoring(df, start_time):
 def get_latest_parquet_file(base_url):
     """Get the most recent parquet file for a given base URL."""
     base_url_without_host = remove_host_from_url(base_url)
-    data_dir = 'data'
+    data_dir = "data"
     if not os.path.exists(data_dir):
         return None
-    
+
     # Find all matching parquet files
     pattern = f"{base_url_without_host}-*.parquet"
-    matching_files = [f for f in os.listdir(data_dir) if f.startswith(base_url_without_host) and f.endswith('.parquet')]
-    
+    matching_files = [
+        f
+        for f in os.listdir(data_dir)
+        if f.startswith(base_url_without_host) and f.endswith(".parquet")
+    ]
+
     if not matching_files:
         return None
-    
+
     # Sort by timestamp in filename and get the most recent
     latest_file = sorted(matching_files)[-1]
     return os.path.join(data_dir, latest_file)

@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 from src import utils
 from src.browser import Browser
-from src.scraper import Scraper, BlockedError, ScrapingError
+from src.scraper import Scraper, BlockedError
 
 import logging
 
@@ -31,24 +31,33 @@ def prevent_system_sleep():
     """Prevent system from sleeping during scraping."""
     system = platform.system().lower()
     process = None
-    
+
     try:
         if system == "darwin":  # macOS
             process = subprocess.Popen(["caffeinate", "-i"])
             print("System sleep prevention enabled (macOS)")
         elif system == "linux":
-            process = subprocess.Popen(["systemd-inhibit", "--what=sleep", "--who=ZonaProp Scraper", "--why=Scraping in progress", "sleep", "infinity"])
+            process = subprocess.Popen(
+                [
+                    "systemd-inhibit",
+                    "--what=sleep",
+                    "--who=ZonaProp Scraper",
+                    "--why=Scraping in progress",
+                    "sleep",
+                    "infinity",
+                ]
+            )
             print("System sleep prevention enabled (Linux)")
         else:
             print("Warning: System sleep prevention not supported on this platform")
     except Exception as e:
         print(f"Warning: Could not prevent system sleep: {e}")
-    
+
     def cleanup():
         if process:
             process.terminate()
             print("System sleep prevention disabled")
-    
+
     atexit.register(cleanup)
     return process
 
@@ -107,7 +116,7 @@ def main(
     """
     # Prevent system sleep
     sleep_prevention = prevent_system_sleep()
-    
+
     start_time = time.time()
     all_estates = []
     total_pages = 0
@@ -126,15 +135,19 @@ def main(
     def handle_error(error, base_url, pbar):
         nonlocal retry_count
         save_intermediate_results(base_url, pbar)
-        
+
         if retry_count < max_retries:
             retry_count += 1
-            print(f"\nError occurred. Waiting 5 minutes before retry {retry_count}/{max_retries}...")
+            print(
+                f"\nError occurred. Waiting 5 minutes before retry {retry_count}/{max_retries}..."
+            )
             time.sleep(300)  # 5 minutes
             return True
         else:
             if isinstance(error, BlockedError):
-                print("Scraping was blocked. Please follow the suggestions above and try again.")
+                print(
+                    "Scraping was blocked. Please follow the suggestions above and try again."
+                )
             else:
                 print("Scraping failed. Please check the error message above.")
             sys.exit(1)
@@ -176,17 +189,19 @@ def main(
                 print(f"Found {total_estates:,} properties to scrape")
 
                 # Calculate total pages
-                total_pages = (total_estates + first_page_estates - 1) // first_page_estates
+                total_pages = (
+                    total_estates + first_page_estates - 1
+                ) // first_page_estates
                 print(f"Will process {total_pages} pages")
-                
+
                 # Create progress bar for total pages
                 pbar = tqdm(total=total_pages, desc="Scraping pages", unit="page")
-                
+
                 # Add first page data
                 all_estates.extend(first_page_data)
                 processed_pages += 1
                 pbar.update(1)
-                
+
                 # Process remaining pages
                 for page_num in range(2, total_pages + 1):
                     try:
@@ -195,7 +210,7 @@ def main(
                         time.sleep(scraper._get_sleep_time())
                         processed_pages += 1
                         pbar.update(1)
-                        
+
                     except (BlockedError, Exception) as e:
                         if not handle_error(e, base_url, pbar):
                             raise
@@ -218,9 +233,13 @@ def main(
             batch_size = len(all_estates) // num_batches
             for i in range(num_batches):
                 start_idx = i * batch_size
-                end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
+                end_idx = (
+                    start_idx + batch_size if i < num_batches - 1 else len(all_estates)
+                )
                 batch_estates = all_estates[start_idx:end_idx]
-                flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
+                flattened_estates = [
+                    utils.flatten_json(estate) for estate in batch_estates
+                ]
                 df = pd.DataFrame(flattened_estates)
                 utils.save_df_to_parquet(df, base_url, pbar)
 
@@ -275,17 +294,23 @@ def main(
                     print(f"Found {total_estates:,} {prop_type} properties to scrape")
 
                     # Calculate total pages
-                    total_pages = (total_estates + first_page_estates - 1) // first_page_estates
+                    total_pages = (
+                        total_estates + first_page_estates - 1
+                    ) // first_page_estates
                     print(f"Will process {total_pages} pages")
-                    
+
                     # Create progress bar for total pages
-                    pbar = tqdm(total=total_pages, desc=f"Scraping {prop_type} pages", unit="page")
-                    
+                    pbar = tqdm(
+                        total=total_pages,
+                        desc=f"Scraping {prop_type} pages",
+                        unit="page",
+                    )
+
                     # Add first page data
                     all_estates.extend(first_page_data)
                     processed_pages += 1
                     pbar.update(1)
-                    
+
                     # Process remaining pages
                     for page_num in range(2, total_pages + 1):
                         try:
@@ -294,7 +319,7 @@ def main(
                             time.sleep(scraper._get_sleep_time())
                             processed_pages += 1
                             pbar.update(1)
-                            
+
                         except (BlockedError, Exception) as e:
                             if not handle_error(e, base_url_for_save, pbar):
                                 raise
@@ -344,8 +369,11 @@ if __name__ == "__main__":
         "--limit", "-l", type=int, help="Limit the number of results to scrape"
     )
     parser.add_argument(
-        "--num-batches", "-b", type=int, default=1,
-        help="Number of batches to split the data into (default: 1, meaning all data in memory)"
+        "--num-batches",
+        "-b",
+        type=int,
+        default=1,
+        help="Number of batches to split the data into (default: 1, meaning all data in memory)",
     )
 
     args = parser.parse_args()
