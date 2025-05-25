@@ -3,6 +3,9 @@ import argparse
 from typing import List
 import sys
 from tqdm import tqdm
+import subprocess
+import platform
+import atexit
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -22,6 +25,32 @@ logging.basicConfig(
 # Define valid property and transaction types
 PROPERTY_TYPES = ["departamentos", "casas", "terrenos", "locales-comerciales", "ph"]
 TRANSACTION_TYPES = ["venta", "alquiler"]
+
+
+def prevent_system_sleep():
+    """Prevent system from sleeping during scraping."""
+    system = platform.system().lower()
+    process = None
+    
+    try:
+        if system == "darwin":  # macOS
+            process = subprocess.Popen(["caffeinate", "-i"])
+            print("System sleep prevention enabled (macOS)")
+        elif system == "linux":
+            process = subprocess.Popen(["systemd-inhibit", "--what=sleep", "--who=ZonaProp Scraper", "--why=Scraping in progress", "sleep", "infinity"])
+            print("System sleep prevention enabled (Linux)")
+        else:
+            print("Warning: System sleep prevention not supported on this platform")
+    except Exception as e:
+        print(f"Warning: Could not prevent system sleep: {e}")
+    
+    def cleanup():
+        if process:
+            process.terminate()
+            print("System sleep prevention disabled")
+    
+    atexit.register(cleanup)
+    return process
 
 
 def build_url(property_types: List[str], transaction_type: str) -> str:
@@ -76,8 +105,40 @@ def main(
         limit: Optional limit on the number of results to scrape (will be split evenly across property types)
         num_batches: Number of batches to split the data into (default: 1, meaning all data in memory)
     """
+    # Prevent system sleep
+    sleep_prevention = prevent_system_sleep()
+    
     start_time = time.time()
     all_estates = []
+    total_pages = 0
+    processed_pages = 0
+    retry_count = 0
+    max_retries = 1
+
+    def save_intermediate_results(base_url, pbar):
+        if len(all_estates) > 0:
+            print("\nSaving intermediate results before exiting...")
+            flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
+            df = pd.DataFrame(flattened_estates)
+            utils.save_df_to_parquet(df, base_url, pbar)
+            print(f"Saved {len(all_estates):,} properties before exiting")
+
+    def handle_error(error, base_url, pbar):
+        nonlocal retry_count
+        save_intermediate_results(base_url, pbar)
+        
+        if retry_count < max_retries:
+            retry_count += 1
+            print(f"\nError occurred. Waiting 5 minutes before retry {retry_count}/{max_retries}...")
+            time.sleep(300)  # 5 minutes
+            return True
+        else:
+            if isinstance(error, BlockedError):
+                print("Scraping was blocked. Please follow the suggestions above and try again.")
+            else:
+                print("Scraping failed. Please check the error message above.")
+            sys.exit(1)
+        return False
 
     # If URL is provided, just scrape that URL
     if url is not None:
@@ -86,82 +147,82 @@ def main(
         browser = Browser()
         scraper = Scraper(browser, base_url)
 
-        try:
-            # Get first page to determine total estates and estates per page
-            first_page_data = scraper.scrape_page(1)
-            first_page_estates = len(first_page_data)
+        while True:
+            try:
+                # Get first page to determine total estates and estates per page
+                first_page_data = scraper.scrape_page(1)
+                first_page_estates = len(first_page_data)
 
-            # Get total count from the first page
-            page = browser.get_text(f"{base_url}.html")
-            soup = BeautifulSoup(page, "lxml")
-            text = soup.find_all("h1")[0].text
-            words = text.split(" ")
-            for word in words:
-                try:
-                    float(word)
-                    total_estates = int(word.replace(".", ""))
-                    break
-                except ValueError:
-                    pass
-            else:
-                total_estates = first_page_estates  # Fallback to first page count if we can't find total
+                # Get total count from the first page
+                page = browser.get_text(f"{base_url}.html")
+                soup = BeautifulSoup(page, "lxml")
+                text = soup.find_all("h1")[0].text
+                words = text.split(" ")
+                for word in words:
+                    try:
+                        float(word)
+                        total_estates = int(word.replace(".", ""))
+                        break
+                    except ValueError:
+                        pass
+                else:
+                    total_estates = first_page_estates  # Fallback to first page count if we can't find total
 
-            # Apply limit if specified
-            if limit is not None:
-                total_estates = min(total_estates, limit)
-                print(f"Limited to {total_estates:,} properties")
+                # Apply limit if specified
+                if limit is not None:
+                    total_estates = min(total_estates, limit)
+                    print(f"Limited to {total_estates:,} properties")
 
-            print(f"Found {total_estates:,} properties to scrape")
+                print(f"Found {total_estates:,} properties to scrape")
 
-            # Calculate total pages
-            total_pages = (total_estates + first_page_estates - 1) // first_page_estates
-            print(f"Will process {total_pages} pages")
-            
-            # Create progress bar for total pages
-            pbar = tqdm(total=total_pages, desc="Scraping pages")
-            
-            # Add first page data
-            all_estates.extend(first_page_data)
-            
-            # Process remaining pages
-            for page_num in range(2, total_pages + 1):
-                try:
-                    page_data = scraper.scrape_page(page_num)
-                    all_estates.extend(page_data)
-                    time.sleep(scraper._get_sleep_time())
-                    pbar.update(1)
-                    
-                except BlockedError as e:
+                # Calculate total pages
+                total_pages = (total_estates + first_page_estates - 1) // first_page_estates
+                print(f"Will process {total_pages} pages")
+                
+                # Create progress bar for total pages
+                pbar = tqdm(total=total_pages, desc="Scraping pages", unit="page")
+                
+                # Add first page data
+                all_estates.extend(first_page_data)
+                processed_pages += 1
+                pbar.update(1)
+                
+                # Process remaining pages
+                for page_num in range(2, total_pages + 1):
+                    try:
+                        page_data = scraper.scrape_page(page_num)
+                        all_estates.extend(page_data)
+                        time.sleep(scraper._get_sleep_time())
+                        processed_pages += 1
+                        pbar.update(1)
+                        
+                    except (BlockedError, Exception) as e:
+                        if not handle_error(e, base_url, pbar):
+                            raise
+
+                pbar.close()
+                break  # Success, exit the retry loop
+
+            except (BlockedError, Exception) as e:
+                if not handle_error(e, base_url, pbar):
                     raise
-                except Exception as e:
-                    logging.error(f"Error scraping page {page_num}: {str(e)}")
-                    raise
 
-            pbar.close()
-
-            # Save all data
-            if num_batches == 1:
-                # Single batch - save all data at once
-                flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
+        # Save all data
+        if num_batches == 1:
+            # Single batch - save all data at once
+            flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
+            df = pd.DataFrame(flattened_estates)
+            utils.save_df_to_parquet(df, base_url, pbar)
+        else:
+            # Multiple batches
+            batch_size = len(all_estates) // num_batches
+            for i in range(num_batches):
+                start_idx = i * batch_size
+                end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
+                batch_estates = all_estates[start_idx:end_idx]
+                flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
                 df = pd.DataFrame(flattened_estates)
                 utils.save_df_to_parquet(df, base_url, pbar)
-            else:
-                # Multiple batches
-                batch_size = len(all_estates) // num_batches
-                for i in range(num_batches):
-                    start_idx = i * batch_size
-                    end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
-                    batch_estates = all_estates[start_idx:end_idx]
-                    flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
-                    df = pd.DataFrame(flattened_estates)
-                    utils.save_df_to_parquet(df, base_url, pbar)
-
-        except BlockedError as e:
-            print("Scraping was blocked. Please follow the suggestions above and try again.")
-            sys.exit(1)
-        except ScrapingError as e:
-            print("Scraping failed. Please check the error message above.")
-            sys.exit(1)
 
         base_url_for_save = base_url
 
@@ -185,85 +246,68 @@ def main(
             print(f"Starting scraper for {base_url}")
             scraper = Scraper(browser, base_url)
 
-            try:
-                # Get first page to determine total estates and estates per page
-                first_page_data = scraper.scrape_page(1)
-                first_page_estates = len(first_page_data)
+            while True:
+                try:
+                    # Get first page to determine total estates and estates per page
+                    first_page_data = scraper.scrape_page(1)
+                    first_page_estates = len(first_page_data)
 
-                # Get total count from the first page
-                page = browser.get_text(f"{base_url}.html")
-                soup = BeautifulSoup(page, "lxml")
-                text = soup.find_all("h1")[0].text
-                words = text.split(" ")
-                for word in words:
-                    try:
-                        float(word)
-                        total_estates = int(word.replace(".", ""))
-                        break
-                    except ValueError:
-                        pass
-                else:
-                    total_estates = first_page_estates  # Fallback to first page count if we can't find total
+                    # Get total count from the first page
+                    page = browser.get_text(f"{base_url}.html")
+                    soup = BeautifulSoup(page, "lxml")
+                    text = soup.find_all("h1")[0].text
+                    words = text.split(" ")
+                    for word in words:
+                        try:
+                            float(word)
+                            total_estates = int(word.replace(".", ""))
+                            break
+                        except ValueError:
+                            pass
+                    else:
+                        total_estates = first_page_estates
 
-                # Apply limit per type if specified
-                if limit_per_type is not None:
-                    total_estates = min(total_estates, limit_per_type)
-                    print(f"Limited to {total_estates:,} {prop_type} properties")
+                    # Apply limit per type if specified
+                    if limit_per_type is not None:
+                        total_estates = min(total_estates, limit_per_type)
+                        print(f"Limited to {total_estates:,} {prop_type} properties")
 
-                print(f"Found {total_estates:,} {prop_type} properties to scrape")
+                    print(f"Found {total_estates:,} {prop_type} properties to scrape")
 
-                # Calculate total pages
-                total_pages = (total_estates + first_page_estates - 1) // first_page_estates
-                print(f"Will process {total_pages} pages")
-                
-                # Create progress bar for total pages
-                pbar = tqdm(total=total_pages, desc=f"Scraping {prop_type} pages")
-                
-                # Add first page data
-                all_estates.extend(first_page_data)
-                
-                # Process remaining pages
-                for page_num in range(2, total_pages + 1):
-                    try:
-                        page_data = scraper.scrape_page(page_num)
-                        all_estates.extend(page_data)
-                        time.sleep(scraper._get_sleep_time())
-                        pbar.update(1)
-                        
-                    except BlockedError as e:
+                    # Calculate total pages
+                    total_pages = (total_estates + first_page_estates - 1) // first_page_estates
+                    print(f"Will process {total_pages} pages")
+                    
+                    # Create progress bar for total pages
+                    pbar = tqdm(total=total_pages, desc=f"Scraping {prop_type} pages", unit="page")
+                    
+                    # Add first page data
+                    all_estates.extend(first_page_data)
+                    processed_pages += 1
+                    pbar.update(1)
+                    
+                    # Process remaining pages
+                    for page_num in range(2, total_pages + 1):
+                        try:
+                            page_data = scraper.scrape_page(page_num)
+                            all_estates.extend(page_data)
+                            time.sleep(scraper._get_sleep_time())
+                            processed_pages += 1
+                            pbar.update(1)
+                            
+                        except (BlockedError, Exception) as e:
+                            if not handle_error(e, base_url_for_save, pbar):
+                                raise
+
+                    pbar.close()
+                    break  # Success, exit the retry loop
+
+                except (BlockedError, Exception) as e:
+                    if not handle_error(e, base_url_for_save, pbar):
                         raise
-                    except Exception as e:
-                        logging.error(f"Error scraping page {page_num}: {str(e)}")
-                        raise
-
-                pbar.close()
-
-                # Save all data
-                if num_batches == 1:
-                    # Single batch - save all data at once
-                    flattened_estates = [utils.flatten_json(estate) for estate in all_estates]
-                    df = pd.DataFrame(flattened_estates)
-                    utils.save_df_to_parquet(df, base_url, pbar)
-                else:
-                    # Multiple batches
-                    batch_size = len(all_estates) // num_batches
-                    for i in range(num_batches):
-                        start_idx = i * batch_size
-                        end_idx = start_idx + batch_size if i < num_batches - 1 else len(all_estates)
-                        batch_estates = all_estates[start_idx:end_idx]
-                        flattened_estates = [utils.flatten_json(estate) for estate in batch_estates]
-                        df = pd.DataFrame(flattened_estates)
-                        utils.save_df_to_parquet(df, base_url, pbar)
 
                 # Add a small delay between different property types
                 time.sleep(2)
-
-            except BlockedError as e:
-                print("Scraping was blocked. Please follow the suggestions above and try again.")
-                sys.exit(1)
-            except ScrapingError as e:
-                print("Scraping failed. Please check the error message above.")
-                sys.exit(1)
 
     else:
         raise ValueError("Either url or property_types must be provided")
